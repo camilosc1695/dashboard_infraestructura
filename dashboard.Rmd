@@ -1,0 +1,339 @@
+---
+title: "Infrastructure Dashboard"
+author: "Camilo Santa Cruz"
+output:
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+---
+
+```{r, include=FALSE}
+library(highcharter)
+library(purrr)
+library(dplyr)
+library(viridisLite)
+library(forecast)
+library(flexdashboard)
+library(readxl)
+library(dplyr)
+library(spdep)
+library(spatialreg)
+library(rgdal)
+library(sf)
+library(htmlwidgets)
+library(leaflet)
+library(RColorBrewer)
+library(ggplot2)
+```
+
+```{r, include=FALSE}
+library(highcharter)
+library(dplyr)
+library(viridisLite)
+library(forecast)
+library(flexdashboard)
+library(readxl)
+library(dplyr)
+library(spdep)
+library(spatialreg)
+library(rgdal)
+library(sf)
+library(htmlwidgets)
+library(leaflet)
+library(RColorBrewer)
+library(ggplot2)
+```
+
+```{r,include=FALSE}
+Infraestructura <- read_excel("~/Desktop/Infraestructura.xlsx")
+shapefile <- st_read("~/Library/Mobile Documents/com~apple~CloudDocs/Escritorio - MacBook Air de Camilo/CCECR/Empleo CPCECR/geo_gam82.shx")
+```
+
+```{r, include=FALSE}
+Infraestructura1 <- Infraestructura %>% group_by(Cantón) %>% filter(`Tipo actvidad económica` == "Construcción") %>% summarize(Infraestructura = sum(`Valor Agregado`)) %>% select(Cantón, Infraestructura)
+
+Infraestructura2 <- Infraestructura %>% group_by(Cantón) %>% filter(`Actividad Económica` == "Construcción de edificios no residenciales") %>% summarize(No_residencial = sum(`Valor Agregado`)) %>% select(Cantón, No_residencial)
+
+Infraestructura3 <- Infraestructura %>% group_by(Cantón) %>% filter(`Actividad Económica` == "Construcción de carreteras y vías férreas") %>% summarize(Transporte = sum(`Valor Agregado`)) %>% select(Cantón, Transporte)
+```
+
+
+```{r, include=FALSE}
+Construcción <- Infraestructura %>% group_by(Cantón) %>% filter(`Tipo actvidad económica` == "Construcción") 
+
+aggregated_data <- Construcción %>%
+  group_by(`Actividad Económica`) %>%
+  summarize(Share = n() / nrow(Construcción))
+
+colnames(aggregated_data)[1] <- "Actividad"
+```
+
+
+```{r, include=FALSE}
+sf_cantones <- readOGR("https://raw.githubusercontent.com/taller-r-jornadas-sigtd-2020/datos/master/cantones.geojson")
+colnames(sf_cantones@data)[5] <- "Cantón"
+```
+
+
+```{r, include=FALSE}
+sf_cantones@data <- merge(sf_cantones@data, Infraestructura1, by = "Cantón")
+sf_cantones@data <- merge(sf_cantones@data, Infraestructura2, by = "Cantón")
+sf_cantones@data <- merge(sf_cantones@data, Infraestructura3, by = "Cantón")
+
+sf_cantones@data$total <- sum(sf_cantones@data$Infraestructura)
+sf_cantones@data$total_transporte <- sum(sf_cantones@data$Transporte)
+sf_cantones@data$total_noresidencial <- sum(sf_cantones@data$No_residencial)
+
+sf_cantones@data$share_infraestructura <-  100*(sf_cantones@data$Infraestructura/sf_cantones@data$total)
+
+sf_cantones@data$share_Transporte <-  100*(sf_cantones@data$Transporte/sf_cantones@data$total_transporte)
+
+sf_cantones@data$share_noresidencial <-  100*(sf_cantones@data$No_residencial/sf_cantones@data$total_noresidencial)
+```
+
+```{r, include=FALSE}
+## Asignación de Paleta
+bins <- quantile(sf_cantones@data$share_infraestructura, probs = c(0,0.1, 0.2,0.40,0.60,0.80,1))
+
+paleta_roja <- colorBin("Reds", domain = sf_cantones@data$share_infraestructura, bins = bins)
+
+bins1 <- quantile(sf_cantones@data$share_Transporte, , probs = c(0,0.1,0.2,0.40,0.60,0.80,1))
+paleta_roja1 <- colorBin("Reds", domain = sf_cantones@data$share_Transporte, bins = bins1)
+
+bins2 <- quantile(sf_cantones@data$share_infraestructura, probs = c(0,0.1,0.2,0.40,0.60,0.80,1))
+bins
+
+paleta_roja2 <- colorBin("Reds", domain = sf_cantones@data$share_noresidencial, bins = bins2)
+paleta_roja2
+
+```
+
+
+
+```{r, include = F}
+m1 <- leaflet(sf_cantones) %>% 
+  fitBounds(lng1 = -86, lng2 = -82, lat1 = 8, lat2 = 11) %>% addCircles(-93.65, 42.0285, weight = 1, radius = 30) %>%
+  addProviderTiles(providers$OpenStreetMap.Mapnik, group = "OpenStreetMap") %>%
+  addPolygons(fillColor = ~ paleta_roja(sf_cantones@data$share_infraestructura), stroke=T, fillOpacity = 1,
+              color="black", weight = 0.2, opacity = 0.5,
+              group = "Cantón",
+              popup = paste("Cantón: ", sf_cantones@data$Cantón, "<br>", sf_cantones@data$share_infraestructura, "<br>")) %>% addLegend("bottomleft", pal = paleta_roja, values = ~ sf_cantones@data$share_infraestructura,
+    title = "Inversión en infraestructura",
+    opacity = 1
+  ) %>%  
+  addLayersControl(
+    baseGroups = c("OpenStreetMap"),
+    overlayGroups = c("Cantones"),
+    options = layersControlOptions(collapsed = TRUE)    
+  ) %>%
+  # Customize map style
+  leaflet::addProviderTiles(
+    providers$OpenStreetMap.Mapnik,
+    options = providerTileOptions(noWrap = TRUE)) %>% addPolygons(data = shapefile, fillColor = "red", stroke = TRUE, color = "black", weight = 2)
+m1
+```
+
+
+```{r, include = F}
+m2 <- leaflet(sf_cantones) %>% 
+  fitBounds(lng1 = -86, lng2 = -82, lat1 = 8, lat2 = 11) %>% addCircles(-93.65, 42.0285, weight = 1, radius = 30) %>%
+  addProviderTiles(providers$OpenStreetMap.Mapnik, group = "OpenStreetMap") %>%
+  addPolygons(fillColor = ~ paleta_roja(sf_cantones@data$share_Transporte), stroke=T, fillOpacity = 1,
+              color="black", weight = 0.2, opacity = 0.5,
+              group = "Cantón",
+              popup = paste("Cantón: ", sf_cantones@data$Cantón, "<br>", sf_cantones@data$share_Transporte, "<br>")) %>% addLegend("bottomleft", pal = paleta_roja, values = ~ sf_cantones@data$share_Transporte,
+    title = "Inversión en infraestructura de transporte",
+    opacity = 1
+  ) %>%  
+  addLayersControl(
+    baseGroups = c("OpenStreetMap"),
+    overlayGroups = c("Cantones"),
+    options = layersControlOptions(collapsed = TRUE)    
+  ) %>%
+  # Customize map style
+  leaflet::addProviderTiles(
+    providers$CartoDB.Positron,
+    options = providerTileOptions(noWrap = TRUE)) %>% addPolygons(data = shapefile, fillColor = "red", stroke = TRUE, color = "black", weight = 2)
+m2
+```
+
+```{r, include = F}
+m3 <- leaflet(sf_cantones) %>% 
+  fitBounds(lng1 = -86, lng2 = -82, lat1 = 8, lat2 = 11) %>% addCircles(-93.65, 42.0285, weight = 1, radius = 30) %>%
+  addProviderTiles(providers$OpenStreetMap.Mapnik, group = "OpenStreetMap") %>%
+  addPolygons(fillColor = ~ paleta_roja(sf_cantones@data$share_noresidencial), stroke=T, fillOpacity = 1,
+              color="black", weight = 0.2, opacity = 0.5,
+              group = "Cantón",
+              popup = paste("Cantón: ", sf_cantones@data$Cantón, "<br>", sf_cantones@data$share_noresidencial, "<br>")) %>% addLegend("bottomleft", pal = paleta_roja, values = ~ sf_cantones@data$share_noresidencial,
+    title = "Inversión en infraestructura no residencial",
+    opacity = 1
+  ) %>%  
+  addLayersControl(
+    baseGroups = c("OpenStreetMap"),
+    overlayGroups = c("Cantones"),
+    options = layersControlOptions(collapsed = TRUE)    
+  ) %>%
+  # Customize map style
+  leaflet::addProviderTiles(
+    providers$CartoDB.Positron,
+    options = providerTileOptions(noWrap = TRUE)) %>% addPolygons(data = shapefile, fillColor = "red", stroke = TRUE, color = "black", weight = 2)
+m3
+library(httr)
+library(geojsonio)
+```
+
+
+```{r, include = F}
+mapa <- "https://raw.githubusercontent.com/taller-r-jornadas-sigtd-2020/datos/master/cantones.geojson" %>% 
+  GET() %>% 
+  content() %>% 
+  jsonlite::fromJSON(simplifyVector = FALSE)
+```
+
+
+```{r, include = F}
+#mapa$features
+#mapa$name <- "Cantón"
+
+data <- map_df(mapa$features, "properties")
+data <- mutate(data, value = canton)
+
+colnames(Infraestructura1)[1] <- "canton"
+colnames(Infraestructura2)[1] <- "canton"
+colnames(Infraestructura3)[1] <- "canton"
+
+```
+
+
+```{r, include = F}
+data1 <- merge(data, Infraestructura1, by = "canton")
+
+data2 <- merge(data1, Infraestructura2, by = "canton")
+
+data3 <- merge(data2, Infraestructura3, by = "canton")
+```
+
+
+```{r,include = F}
+highchart(type = "map") %>% 
+  hc_add_series(mapData = mapa, showInLegend = TRUE, data = data3,
+                joinBy = "canton", value = "Transporte") %>% 
+  hc_colorAxis(stops = color_stops(colors = brewer.pal(9, "Reds")),
+    min = min(data3$value), # Replace with your data range
+    max = max(data3$value)  # Replace with your data range
+  ) %>% 
+  hc_tooltip(pointFormat = "{point.canton}: {point.value}")
+```
+
+
+```{r, include = F}
+highchart() %>%
+hc_add_series_map(mapa, data3, value = "Transporte", joinBy = 'canton')
+
+# Determine the minimum and maximum values in your data
+data_min <- min(data3$Transporte)
+data_max <- max(data3$Transporte)
+
+highchart() %>%
+  hc_add_series_map(mapa, data3, value = "Transporte", joinBy = 'canton') %>%
+  hc_colorAxis(
+    min = data_min,
+    max = data_max,
+    stops = color_stops(colors = brewer.pal(9, "Reds")))
+
+```
+
+
+```{r}
+#hcmap(map = mapa, 
+  #    data = data3, 
+ #     joinBy = "canton", # se utiliza para empatar los valores y los nombres
+ #     value = "Transporte",
+  #    dataLabels = list(enabled = T, format = '{point.canton}'),
+  #    tooltip = list(valueSuffix = " millones de $")) %>% 
+  #hc_colorAxis(stops = color_stops(colors = brewer.pal(9, "Reds")),
+  #  min = min(data3$value), # Replace with your data range
+  #  max = max(data3$value)  # Replace with your data range
+#  ) %>% hc_tooltip(pointFormat = "{point.canton}: {point.value}")
+```
+
+```{r, include = F}
+mapa <- "https://raw.githubusercontent.com/juaneladio/peru-geojson/master/peru_departamental_simple.geojson" %>% 
+  GET() %>% 
+  content() %>% 
+  jsonlite::fromJSON(simplifyVector = FALSE)
+
+#mapa$features
+# Extraemos lo que tiene de información
+data <- map_df(mapa$features, "properties")
+data <- mutate(data, value = COUNT)
+#data
+
+highchart(type = "map") %>% 
+  hc_add_series(mapData = mapa, showInLegend = TRUE, data = data,
+                joinBy = "FIRST_IDDP", name = "Hectareas") %>% 
+  hc_colorAxis(enabled = TRUE) %>% 
+  # acá accedes a los valores del data frame "data"
+  hc_tooltip(pointFormat = "{point.NOMBDEP}: {point.value}")
+```
+
+
+```{r, include = F}
+library(ggplot2)
+
+# Convert the SpatialPolygonsDataFrame to a data frame
+df <- fortify(sf_cantones)
+df
+```
+
+```{r, include=FALSE}
+thm <- 
+  hc_theme(
+    colors = c("#1a6ecc", "#434348", "#90ed7d"),
+    chart = list(
+      backgroundColor = "transparent",
+      style = list(fontFamily = "Source Sans Pro")
+    ),
+    xAxis = list(
+      gridLineWidth = 1
+    )
+  )
+
+```
+
+Column {.tabset data-width=600}
+-----------------------------------------------------------------------
+
+### General Investment
+
+```{r}
+m1
+```
+
+### Transport Investment
+
+```{r}
+m2
+```
+
+Column {.tabset data-width=400}
+-----------------------------------------------------------------------
+
+### Non residential Investment
+
+```{r, fig.keep='none'}
+m3
+```
+
+### Investment Share
+
+```{r, echo = F}
+hc <- aggregated_data %>%
+  hchart(
+    "treemap", 
+    hcaes(x = Actividad, value = Share, color = Share),
+    color = brewer.pal(5, "Reds")) %>% hc_colorAxis(
+    stops = color_stops(colors = brewer.pal(9, "Reds")))
+hc
+```
+
